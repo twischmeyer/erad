@@ -274,5 +274,5 @@ class SimulationEngine:
     def __del__(self):
         try:
             self._con.close()
-        except Exception:
+        except Exception:  # noqa: B110
             pass
