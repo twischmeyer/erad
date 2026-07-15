@@ -32,6 +32,13 @@ def test_wind_simulation(tmp_path):
     assert (tmp_path / "test_wind_simulation.db").exists()
 
 
+def test_wind_gust_simulation(tmp_path):
+    hazard_scenario = HazardSimulator(asset_system=get_asset_system())
+    hazard_scenario.run(hazard_system=HazardSystem.wind_gust_example())
+    hazard_scenario.asset_system.export_results(tmp_path / "test_wind_gust_simulation.db")
+    assert (tmp_path / "test_wind_gust_simulation.db").exists()
+
+
 def test_flood_simulation(tmp_path):
     hazard_scenario = HazardSimulator(asset_system=get_asset_system())
     hazard_scenario.run(hazard_system=HazardSystem.flood_example())

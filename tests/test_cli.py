@@ -251,6 +251,13 @@ class TestHazardsCommands:
         assert "wind" in result.stdout
         assert "models" in result.stdout
 
+    def test_hazards_example_wind_gust(self):
+        """Test showing wind gust example."""
+        result = runner.invoke(app, ["hazards", "example", "wind_gust"])
+        assert result.exit_code == 0
+        assert "wind_gust" in result.stdout
+        assert "models" in result.stdout
+
     def test_hazards_example_fire(self):
         """Test showing fire example."""
         result = runner.invoke(app, ["hazards", "example", "fire"])
