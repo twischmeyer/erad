@@ -274,5 +274,6 @@ class SimulationEngine:
     def __del__(self):
         try:
             self._con.close()
-        except Exception:  # noqa: B110
-            pass
+        except (RuntimeError, AttributeError):
+            # Connection may already be closed or object partially initialized
+            return
