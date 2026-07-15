@@ -61,8 +61,8 @@ def build_distribution_buses():
                 "uuid": uuid4(),
                 "name": f"bus_{i}",
                 "coordinate": Location(
-                    x=(28.30551 - 28.29454) * random() + 28.29454,
-                    y=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                    x=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                    y=(28.30551 - 28.29454) * random() + 28.29454,
                 ),
             }
         )
@@ -200,8 +200,8 @@ def build_source_bus():
             "uuid": uuid4(),
             "rated_voltage": Voltage(12.47, "kilovolt"),
             "coordinate": Location(
-                x=(28.30551 - 28.29454) * random() + 28.29454,
-                y=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                x=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                y=(28.30551 - 28.29454) * random() + 28.29454,
             ),
         }
     )
@@ -217,8 +217,8 @@ def build_split_phase_distribution_buses():
                 "rated_voltage": Voltage(120, "volt"),
                 "voltage_type": VoltageTypes.LINE_TO_GROUND,
                 "coordinate": Location(
-                    x=(28.30551 - 28.29454) * random() + 28.29454,
-                    y=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                    x=(-97.26956 - (-97.28051)) * random() + (-97.28051),
+                    y=(28.30551 - 28.29454) * random() + 28.29454,
                 ),
             }
         )

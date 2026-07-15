@@ -40,7 +40,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-    "grid-data-models==2.3.0",
+    "grid-data-models==2.3.7",
     "gdmloader",
     "geopandas",
     "requests",
@@ -54,7 +54,9 @@ dependencies = [
     "loguru>=0.7.0",
     "mcp>=1.0.0",
     "typer>=0.9.0",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "duckdb>=1.0",
+    "pyarrow",
 ]
 
 
@@ -78,7 +80,7 @@ doc = [
   "myst-parser",
   "autodoc_pydantic",
   "sphinxcontrib-mermaid",
-  "jupyter-book==2.1.5",
+  "jupyter-book==2.1.6",
 ]
 
 [project.urls]
@@ -132,6 +134,8 @@ docstring-code-line-length = "dynamic"
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401"]
 "**/{tests,docs,tools}/*" = ["E402"]
+"src/erad/engine/*" = ["C901"]
+"src/erad/runner.py" = ["C901"]
 
 [tool.setuptools.dynamic]
 version = {attr = "erad.__version__"}

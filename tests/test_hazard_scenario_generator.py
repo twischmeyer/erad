@@ -11,7 +11,7 @@ def test_hazard_scenarios(gdm_system: DistributionSystem):
     asset_system = AssetSystem.from_gdm(gdm_system)
     hazard_system = HazardSystem.earthquake_example()
     scenario_generator = HazardScenarioGenerator(
-        asset_system=asset_system, hazard_system=hazard_system
+        asset_system=asset_system, hazard_system=hazard_system, engine="legacy"
     )
     scenarios = scenario_generator.samples(number_of_samples)
     assert len(scenarios) == 91

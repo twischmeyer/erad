@@ -4,6 +4,9 @@
 format: jb-book
 root: intro
 parts:
+  - caption: What's New
+    chapters:
+    - file: new_features
   - caption: Installation
     chapters:
     - file: installation
