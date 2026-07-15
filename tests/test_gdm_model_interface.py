@@ -17,7 +17,7 @@ def test_gdm_model_earthquake(gdm_system: DistributionSystem):
     earthquake = EarthQuakeModel(
         name="earthquake_1",
         timestamp=datetime.now(),
-        origin=Point(buses[0].coordinate.y, buses[0].coordinate.x),
+        origin=Point(buses[0].coordinate.x, buses[0].coordinate.y),
         depth=Distance(100, "kilometer"),
         magnitude=5.8,
     )
