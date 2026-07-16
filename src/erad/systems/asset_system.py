@@ -83,6 +83,58 @@ class AssetSystem(System):
         system.add_components(*list_of_assets)
         return system
 
+    @classmethod
+    def from_engine(cls, engine) -> "AssetSystem":
+        """Create an AssetSystem from a SimulationEngine with computed results.
+
+        Converts DuckDB results back into Pydantic Asset/AssetState objects.
+        Useful for interoperability when you ran computation via DuckDB but need
+        Pydantic objects for downstream workflows (plotting, GDM integration, etc.).
+
+        Args:
+            engine: A SimulationEngine instance with computed results.
+
+        Example:
+            engine = SimulationEngine()
+            engine.load_assets_from_arrays(...)
+            engine.load_hazards(hazard_system)
+            engine.load_fragility_curves(curves)
+            engine.run()
+            asset_system = AssetSystem.from_engine(engine)
+            asset_system.plot()
+        """
+        from collections import defaultdict
+        from uuid import UUID
+
+        system = cls(auto_add_composed_components=True)
+
+        # Fetch assets from engine
+        assets_df = engine.connection.execute(
+            "SELECT asset_id, asset_name, asset_type, asset_type_name, latitude, longitude, height_m, elevation_m FROM assets"
+        ).fetchall()
+
+        # Get asset states grouped by asset_id
+        states = engine.to_asset_states()
+        states_by_asset = defaultdict(list)
+        for asset_id, state in states:
+            states_by_asset[asset_id].append(state)
+
+        # Build Asset objects
+        for row in assets_df:
+            asset_id, name, asset_type_int, asset_type_name, lat, lon, height_m, elev_m = row
+            asset = Asset(
+                name=name,
+                asset_type=AssetTypes(asset_type_int),
+                distribution_asset=UUID(asset_id),
+                height=Distance(height_m, "meter"),
+                latitude=lat,
+                longitude=lon,
+                asset_state=states_by_asset.get(asset_id, []),
+            )
+            system.add_component(asset)
+
+        return system
+
     def _add_node_data(
         self, node_data: dict[str, list], asset: Asset, asset_state: AssetState | None = None
     ):

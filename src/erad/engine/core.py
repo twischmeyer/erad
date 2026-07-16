@@ -14,6 +14,7 @@ from erad.engine import loaders, hazard_calcs, fragility, scenario, export
 if TYPE_CHECKING:
     from erad.models.asset import Asset
     from erad.models.fragility_curve import HazardFragilityCurves
+    from erad.systems.asset_system import AssetSystem
     from erad.systems.hazard_system import HazardSystem
 
 
@@ -266,6 +267,215 @@ class SimulationEngine:
     def query(self, sql: str):
         """Run an arbitrary SQL query against the simulation data."""
         return self._con.execute(sql)
+
+    # --- Conversion utilities ---
+
+    def load_from_asset_system(self, asset_system: "AssetSystem"):
+        """Load an existing AssetSystem (with populated asset_state) into DuckDB.
+
+        This allows converting Pydantic-based simulation results into DuckDB
+        for fast querying, export to Parquet, or further analysis.
+        """
+        from erad.models.asset import Asset
+
+        assets = list(asset_system.get_components(Asset))
+        loaders.load_assets(self._con, assets, compute_elevation=False)
+
+        # Create asset_states table and populate from existing Asset.asset_state lists
+        self._create_results_table()
+
+        rows = []
+        for asset in assets:
+            asset_id = str(asset.distribution_asset)
+            for state in asset.asset_state:
+                rows.append(
+                    (
+                        asset_id,
+                        state.timestamp,
+                        state.wind_speed.speed.to("miles/hour").magnitude
+                        if state.wind_speed
+                        else None,
+                        state.flood_depth.distance.to("meter").magnitude
+                        if state.flood_depth
+                        else None,
+                        state.flood_velocity.speed.to("meter/second").magnitude
+                        if state.flood_velocity
+                        else None,
+                        state.fire_boundary_dist.distance.to("kilometer").magnitude
+                        if state.fire_boundary_dist
+                        else None,
+                        state.peak_ground_velocity.speed.to("centimeter/second").magnitude
+                        if state.peak_ground_velocity
+                        else None,
+                        state.peak_ground_acceleration.acceleration.to("meter/second**2").magnitude
+                        / 9.80665
+                        * 100
+                        if state.peak_ground_acceleration
+                        else None,
+                        state.wind_speed.survival_probability if state.wind_speed else 1.0,
+                        state.flood_depth.survival_probability if state.flood_depth else 1.0,
+                        state.flood_velocity.survival_probability if state.flood_velocity else 1.0,
+                        state.fire_boundary_dist.survival_probability
+                        if state.fire_boundary_dist
+                        else 1.0,
+                        state.peak_ground_velocity.survival_probability
+                        if state.peak_ground_velocity
+                        else 1.0,
+                        state.peak_ground_acceleration.survival_probability
+                        if state.peak_ground_acceleration
+                        else 1.0,
+                        state.survival_probability,
+                    )
+                )
+
+        if rows:
+            self._con.executemany(
+                """INSERT INTO asset_states (
+                    asset_id, timestamp, wind_speed_mph, flood_depth_m,
+                    flood_velocity_mps, fire_distance_km, pgv_cms, pga_fraction_g,
+                    wind_speed_surv, flood_depth_surv, flood_velocity_surv,
+                    fire_distance_surv, pgv_surv, pga_surv, survival_probability
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+
+        logger.info(
+            f"Loaded {len(assets)} assets with {len(rows)} asset-states from AssetSystem into DuckDB"
+        )
+
+    def to_asset_states(self) -> list:
+        """Convert DuckDB results to a list of (asset_id, AssetState) tuples.
+
+        Returns list of tuples: (asset_id: str, state: AssetState)
+        """
+        from infrasys.quantities import Distance
+
+        from erad.models.asset import AssetState
+        from erad.models.probability import (
+            AccelerationProbability,
+            DistanceProbability,
+            SpeedProbability,
+        )
+        from erad.quantities import Acceleration, Speed
+
+        results = self._con.execute(
+            """
+            SELECT
+                s.asset_id, s.timestamp,
+                s.wind_speed_mph, s.flood_depth_m, s.flood_velocity_mps,
+                s.fire_distance_km, s.pgv_cms, s.pga_fraction_g,
+                s.wind_speed_surv, s.flood_depth_surv, s.flood_velocity_surv,
+                s.fire_distance_surv, s.pgv_surv, s.pga_surv
+            FROM asset_states s
+            ORDER BY s.asset_id, s.timestamp
+        """
+        ).fetchall()
+
+        output = []
+        for row in results:
+            (
+                asset_id,
+                timestamp,
+                wind_mph,
+                flood_depth_m,
+                flood_vel_mps,
+                fire_dist_km,
+                pgv_cms,
+                pga_g,
+                wind_surv,
+                flood_depth_surv,
+                flood_vel_surv,
+                fire_surv,
+                pgv_surv,
+                pga_surv,
+            ) = row
+
+            state = AssetState(timestamp=timestamp)
+
+            if wind_mph is not None:
+                state.wind_speed = SpeedProbability(
+                    speed=Speed(wind_mph, "miles/hour"),
+                    survival_probability=wind_surv,
+                )
+            if flood_depth_m is not None:
+                state.flood_depth = DistanceProbability(
+                    distance=Distance(flood_depth_m, "meter"),
+                    survival_probability=flood_depth_surv,
+                )
+            if flood_vel_mps is not None:
+                state.flood_velocity = SpeedProbability(
+                    speed=Speed(flood_vel_mps, "meter/second"),
+                    survival_probability=flood_vel_surv,
+                )
+            if fire_dist_km is not None:
+                state.fire_boundary_dist = DistanceProbability(
+                    distance=Distance(fire_dist_km, "kilometer"),
+                    survival_probability=fire_surv,
+                )
+            if pgv_cms is not None:
+                state.peak_ground_velocity = SpeedProbability(
+                    speed=Speed(pgv_cms, "centimeter/second"),
+                    survival_probability=pgv_surv,
+                )
+            if pga_g is not None:
+                state.peak_ground_acceleration = AccelerationProbability(
+                    acceleration=Acceleration(pga_g / 100.0 * 9.80665, "meter/second**2"),
+                    survival_probability=pga_surv,
+                )
+
+            output.append((asset_id, state))
+
+        return output
+
+    @classmethod
+    def from_asset_system(cls, asset_system: "AssetSystem") -> "SimulationEngine":
+        """Create a SimulationEngine pre-loaded with data from an existing AssetSystem.
+
+        Use this to convert Pydantic-based results into DuckDB for fast export/analysis.
+
+        Example:
+            engine = SimulationEngine.from_asset_system(asset_system)
+            engine.export_to_parquet("results.parquet")
+            df = engine.export_to_dataframe()
+        """
+        engine = cls()
+        engine.load_from_asset_system(asset_system)
+        return engine
+
+    @classmethod
+    def from_parquet(cls, path: str | Path) -> "SimulationEngine":
+        """Create a SimulationEngine by loading results from a Parquet file.
+
+        Example:
+            engine = SimulationEngine.from_parquet("results.parquet")
+            df = engine.get_failed_assets(threshold=0.3)
+        """
+        path = Path(path)
+        engine = cls()
+        engine._con.execute(
+            f"""
+            CREATE TABLE asset_states AS SELECT * FROM read_parquet('{path}')
+        """
+        )
+        # Try to extract unique assets from the results
+        engine._con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assets AS
+            SELECT DISTINCT
+                asset_id,
+                asset_name,
+                0 AS asset_type,
+                asset_type AS asset_type_name,
+                0.0 AS latitude,
+                0.0 AS longitude,
+                0.0 AS height_m,
+                0.0 AS elevation_m
+            FROM asset_states
+        """
+        )
+        n = engine._con.execute("SELECT COUNT(*) FROM asset_states").fetchone()[0]
+        logger.info(f"Loaded {n} records from Parquet: {path}")
+        return engine
 
     def close(self):
         """Close the DuckDB connection."""
