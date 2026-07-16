@@ -891,6 +891,17 @@ def hazard_example(
             ],
             "timestamps": ["2024-01-01T00:00:00"],
         },
+        "wind_gust": {
+            "models": [
+                {
+                    "name": "wind_gust_1",
+                    "hazard_type": "wind_gust",
+                    "timestamp": "2024-01-01T00:00:00",
+                    "model_data": {"data": {"asset_1": 0.9, "asset_2": 0.6}},
+                }
+            ],
+            "timestamps": ["2024-01-01T00:00:00"],
+        },
     }
 
     hazard_type_lower = hazard_type.lower()
