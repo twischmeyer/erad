@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cached_property
 
 from pydantic import field_serializer, field_validator
 from infrasys.quantities import Distance
@@ -9,6 +10,8 @@ import geopandas as gpd
 from erad.models.hazard.base_models import BaseDisasterModel
 from erad.quantities import Speed
 from infrasys import Component
+
+METERS_PER_MILE = 1609.344
 
 
 class GustModelArea(Component):
@@ -28,6 +31,37 @@ class GustModelArea(Component):
     @field_serializer("max_wind_area")
     def serialize_polygon(self, poly: Polygon, _info):
         return {"type": "Polygon", "coordinates": list(poly.exterior.coords)}
+
+    @cached_property
+    def _precomputed(self):
+        """Pre-compute UTM projection, buffer, and characteristic radius (once per area)."""
+        gdf = gpd.GeoDataFrame(geometry=[self.max_wind_area], crs="EPSG:4326")
+        utm_crs = gdf.estimate_utm_crs()
+        max_area_utm = gdf.to_crs(utm_crs)
+
+        # Buffer for wind-affected area
+        d_reduced_m = self.wind_aff_distance.to("meter").magnitude
+        buffered_utm = max_area_utm.copy()
+        buffered_utm["geometry"] = max_area_utm.buffer(
+            d_reduced_m, resolution=1, join_style="mitre"
+        )
+        wind_aff_area = buffered_utm.to_crs("EPSG:4326").geometry.iloc[0]
+
+        # Characteristic radius: centroid-to-boundary distance in miles
+        max_center_pt = max_area_utm.geometry.centroid.iloc[0]
+        max_center_miles = (
+            max_area_utm.geometry.boundary.distance(max_center_pt).iloc[0] / METERS_PER_MILE
+        )
+
+        # Pre-compute the UTM boundary geometry for distance calculations
+        boundary_utm = max_area_utm.geometry.boundary.iloc[0]
+
+        return {
+            "utm_crs": utm_crs,
+            "boundary_utm": boundary_utm,
+            "wind_aff_area": wind_aff_area,
+            "max_center_miles": max_center_miles,
+        }
 
     @classmethod
     def example(cls) -> "GustModelArea":
