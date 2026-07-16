@@ -136,6 +136,7 @@ docstring-code-line-length = "dynamic"
 "**/{tests,docs,tools}/*" = ["E402"]
 "src/erad/engine/*" = ["C901"]
 "src/erad/runner.py" = ["C901"]
+"src/erad/cli.py" = ["C901"]
 
 [tool.setuptools.dynamic]
 version = {attr = "erad.__version__"}

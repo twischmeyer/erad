@@ -35,11 +35,13 @@ models_app = typer.Typer(help="Manage distribution system models")
 hazards_app = typer.Typer(help="Hazard-related commands")
 cache_app = typer.Typer(help="Cache management commands")
 server_app = typer.Typer(help="Server management commands")
+engine_app = typer.Typer(help="DuckDB simulation engine commands")
 
 app.add_typer(models_app, name="models")
 app.add_typer(hazards_app, name="hazards")
 app.add_typer(cache_app, name="cache")
 app.add_typer(server_app, name="server")
+app.add_typer(engine_app, name="engine")
 
 console = Console()
 
@@ -1016,6 +1018,211 @@ def server_mcp():
     from erad.mcp import main as mcp_main
 
     mcp_main()
+
+
+# ========== Engine Sub-commands ==========
+
+
+@engine_app.command("run")
+def engine_run(
+    model: str = typer.Argument(..., help="Name or path of the cached distribution model"),
+    hazard: str = typer.Argument(..., help="Name or path of the cached hazard model"),
+    output: Path = typer.Option("results.parquet", "--output", "-o", help="Output file path"),
+    format: str = typer.Option(
+        "parquet", "--format", "-f", help="Output format: parquet, sqlite, csv"
+    ),
+    hydrate: bool = typer.Option(
+        False, "--hydrate", help="Also hydrate results into Pydantic objects"
+    ),
+):
+    """Run a simulation using the DuckDB vectorized engine."""
+    from erad.runner import HazardSimulator
+
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
+    ) as progress:
+        progress.add_task("Loading models...", total=None)
+
+        model_system, hazard_system = _load_cached_systems(model, hazard)
+        if model_system is None or hazard_system is None:
+            raise typer.Exit(code=1)
+
+        progress.add_task("Running DuckDB engine...", total=None)
+
+        sim = HazardSimulator(model_system, engine="duckdb")
+        sim.run(hazard_system, hydrate=hydrate)
+
+        progress.add_task(f"Exporting to {format}...", total=None)
+
+        engine = sim.engine
+        if format == "parquet":
+            engine.export_to_parquet(output)
+        elif format == "sqlite":
+            engine.export_to_sqlite(output)
+        elif format == "csv":
+            engine.export_to_csv(output)
+        else:
+            console.print(f"[red]Unknown format: {format}[/red]")
+            raise typer.Exit(code=1)
+
+    console.print(f"[green]Results exported to {output}[/green]")
+    console.print(f"  Assets: {engine.get_asset_count():,}")
+    console.print(f"  Timestamps: {engine.get_timestamp_count()}")
+
+
+@engine_app.command("convert")
+def engine_convert(
+    input_path: Path = typer.Argument(..., help="Input file path (SQLite or Parquet)"),
+    output_path: Path = typer.Argument(..., help="Output file path"),
+    input_format: str = typer.Option(
+        None, "--from", help="Input format (auto-detected from extension)"
+    ),
+    output_format: str = typer.Option(
+        None, "--to", help="Output format (auto-detected from extension)"
+    ),
+):
+    """Convert simulation results between formats (Parquet, SQLite, CSV)."""
+    from erad.engine import SimulationEngine
+
+    # Auto-detect formats from extensions
+    if input_format is None:
+        ext = input_path.suffix.lower()
+        if ext in (".parquet", ".pq"):
+            input_format = "parquet"
+        elif ext in (".db", ".sqlite", ".sqlite3"):
+            input_format = "sqlite"
+        elif ext == ".csv":
+            input_format = "csv"
+        else:
+            console.print(f"[red]Cannot auto-detect input format from extension: {ext}[/red]")
+            raise typer.Exit(code=1)
+
+    if output_format is None:
+        ext = output_path.suffix.lower()
+        if ext in (".parquet", ".pq"):
+            output_format = "parquet"
+        elif ext in (".db", ".sqlite", ".sqlite3"):
+            output_format = "sqlite"
+        elif ext == ".csv":
+            output_format = "csv"
+        else:
+            console.print(f"[red]Cannot auto-detect output format from extension: {ext}[/red]")
+            raise typer.Exit(code=1)
+
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
+    ) as progress:
+        progress.add_task(f"Loading from {input_format}...", total=None)
+
+        engine = SimulationEngine()
+        if input_format == "parquet":
+            engine = SimulationEngine.from_parquet(input_path)
+        elif input_format == "sqlite":
+            engine._con.execute(
+                f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
+                " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
+                " DETACH src;"
+            )
+        elif input_format == "csv":
+            engine._con.execute(
+                f"CREATE TABLE asset_states AS SELECT * FROM read_csv('{input_path}', AUTO_DETECT=TRUE)"
+            )
+
+        progress.add_task(f"Exporting to {output_format}...", total=None)
+
+        if output_format == "parquet":
+            engine._con.execute(
+                f"COPY asset_states TO '{output_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+            )
+        elif output_format == "sqlite":
+            engine.export_to_sqlite(output_path)
+        elif output_format == "csv":
+            engine._con.execute(f"COPY asset_states TO '{output_path}' (FORMAT CSV, HEADER)")
+
+    n = engine._con.execute("SELECT COUNT(*) FROM asset_states").fetchone()[0]
+    console.print(f"[green]Converted {n:,} records: {input_path} → {output_path}[/green]")
+
+
+@engine_app.command("query")
+def engine_query(
+    input_path: Path = typer.Argument(..., help="Results file (Parquet or SQLite)"),
+    sql: str = typer.Option(
+        "SELECT * FROM asset_states LIMIT 10", "--sql", "-q", help="SQL query to execute"
+    ),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save results to CSV"),
+):
+    """Query simulation results using SQL."""
+    from erad.engine import SimulationEngine
+
+    ext = input_path.suffix.lower()
+    if ext in (".parquet", ".pq"):
+        engine = SimulationEngine.from_parquet(input_path)
+    elif ext in (".db", ".sqlite", ".sqlite3"):
+        engine = SimulationEngine()
+        engine._con.execute(
+            f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
+            " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
+            " DETACH src;"
+        )
+    else:
+        console.print(f"[red]Unsupported file format: {ext}[/red]")
+        raise typer.Exit(code=1)
+
+    result = engine._con.execute(sql).fetchdf()
+
+    if output:
+        result.to_csv(output, index=False)
+        console.print(f"[green]Results saved to {output} ({len(result)} rows)[/green]")
+    else:
+        console.print(result.to_string())
+
+
+@engine_app.command("info")
+def engine_info(
+    input_path: Path = typer.Argument(..., help="Results file (Parquet or SQLite)"),
+):
+    """Show summary statistics for a results file."""
+    from erad.engine import SimulationEngine
+
+    ext = input_path.suffix.lower()
+    if ext in (".parquet", ".pq"):
+        engine = SimulationEngine.from_parquet(input_path)
+    elif ext in (".db", ".sqlite", ".sqlite3"):
+        engine = SimulationEngine()
+        engine._con.execute(
+            f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
+            " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
+            " DETACH src;"
+        )
+    else:
+        console.print(f"[red]Unsupported file format: {ext}[/red]")
+        raise typer.Exit(code=1)
+
+    stats = engine._con.execute(
+        """
+        SELECT
+            COUNT(*) as total_records,
+            COUNT(DISTINCT asset_id) as unique_assets,
+            COUNT(DISTINCT timestamp) as timestamps,
+            AVG(survival_probability) as mean_survival,
+            MIN(survival_probability) as min_survival,
+            SUM(CASE WHEN survival_probability < 0.5 THEN 1 ELSE 0 END) as high_risk_count
+        FROM asset_states
+    """
+    ).fetchone()
+
+    table = Table(title=f"Results Summary: {input_path.name}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Total records", f"{stats[0]:,}")
+    table.add_row("Unique assets", f"{stats[1]:,}")
+    table.add_row("Timestamps", f"{stats[2]}")
+    table.add_row("Mean survival probability", f"{stats[3]:.4f}" if stats[3] else "N/A")
+    table.add_row("Min survival probability", f"{stats[4]:.6f}" if stats[4] else "N/A")
+    table.add_row("High-risk assets (< 0.5)", f"{stats[5]:,}")
+
+    console.print(table)
 
 
 # ========== Main Entry Point ==========
