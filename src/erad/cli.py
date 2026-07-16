@@ -1070,6 +1070,57 @@ def engine_run(
     console.print(f"  Timestamps: {engine.get_timestamp_count()}")
 
 
+def _detect_format(path: Path, explicit: str | None) -> str:
+    """Detect file format from extension or explicit override."""
+    if explicit is not None:
+        return explicit
+    ext = path.suffix.lower()
+    format_map = {
+        ".parquet": "parquet",
+        ".pq": "parquet",
+        ".db": "sqlite",
+        ".sqlite": "sqlite",
+        ".sqlite3": "sqlite",
+        ".csv": "csv",
+    }
+    fmt = format_map.get(ext)
+    if fmt is None:
+        console.print(f"[red]Cannot auto-detect format from extension: {ext}[/red]")
+        raise typer.Exit(code=1)
+    return fmt
+
+
+def _load_engine_from_file(path: Path, fmt: str):
+    """Load a SimulationEngine from a results file."""
+    from erad.engine import SimulationEngine
+
+    if fmt == "parquet":
+        return SimulationEngine.from_parquet(path)
+
+    engine = SimulationEngine()
+    if fmt == "sqlite":
+        engine._con.execute(
+            f"ATTACH '{path}' AS src (TYPE SQLITE);"
+            " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
+            " DETACH src;"
+        )
+    elif fmt == "csv":
+        engine._con.execute(
+            f"CREATE TABLE asset_states AS SELECT * FROM read_csv('{path}', AUTO_DETECT=TRUE)"
+        )
+    return engine
+
+
+def _export_engine_to_file(engine, path: Path, fmt: str):
+    """Export engine results to a file."""
+    if fmt == "parquet":
+        engine._con.execute(f"COPY asset_states TO '{path}' (FORMAT PARQUET, COMPRESSION ZSTD)")
+    elif fmt == "sqlite":
+        engine.export_to_sqlite(path)
+    elif fmt == "csv":
+        engine._con.execute(f"COPY asset_states TO '{path}' (FORMAT CSV, HEADER)")
+
+
 @engine_app.command("convert")
 def engine_convert(
     input_path: Path = typer.Argument(..., help="Input file path (SQLite or Parquet)"),
@@ -1082,62 +1133,17 @@ def engine_convert(
     ),
 ):
     """Convert simulation results between formats (Parquet, SQLite, CSV)."""
-    from erad.engine import SimulationEngine
-
-    # Auto-detect formats from extensions
-    if input_format is None:
-        ext = input_path.suffix.lower()
-        if ext in (".parquet", ".pq"):
-            input_format = "parquet"
-        elif ext in (".db", ".sqlite", ".sqlite3"):
-            input_format = "sqlite"
-        elif ext == ".csv":
-            input_format = "csv"
-        else:
-            console.print(f"[red]Cannot auto-detect input format from extension: {ext}[/red]")
-            raise typer.Exit(code=1)
-
-    if output_format is None:
-        ext = output_path.suffix.lower()
-        if ext in (".parquet", ".pq"):
-            output_format = "parquet"
-        elif ext in (".db", ".sqlite", ".sqlite3"):
-            output_format = "sqlite"
-        elif ext == ".csv":
-            output_format = "csv"
-        else:
-            console.print(f"[red]Cannot auto-detect output format from extension: {ext}[/red]")
-            raise typer.Exit(code=1)
+    in_fmt = _detect_format(input_path, input_format)
+    out_fmt = _detect_format(output_path, output_format)
 
     with Progress(
         SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
     ) as progress:
-        progress.add_task(f"Loading from {input_format}...", total=None)
+        progress.add_task(f"Loading from {in_fmt}...", total=None)
+        engine = _load_engine_from_file(input_path, in_fmt)
 
-        engine = SimulationEngine()
-        if input_format == "parquet":
-            engine = SimulationEngine.from_parquet(input_path)
-        elif input_format == "sqlite":
-            engine._con.execute(
-                f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
-                " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
-                " DETACH src;"
-            )
-        elif input_format == "csv":
-            engine._con.execute(
-                f"CREATE TABLE asset_states AS SELECT * FROM read_csv('{input_path}', AUTO_DETECT=TRUE)"
-            )
-
-        progress.add_task(f"Exporting to {output_format}...", total=None)
-
-        if output_format == "parquet":
-            engine._con.execute(
-                f"COPY asset_states TO '{output_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
-            )
-        elif output_format == "sqlite":
-            engine.export_to_sqlite(output_path)
-        elif output_format == "csv":
-            engine._con.execute(f"COPY asset_states TO '{output_path}' (FORMAT CSV, HEADER)")
+        progress.add_task(f"Exporting to {out_fmt}...", total=None)
+        _export_engine_to_file(engine, output_path, out_fmt)
 
     n = engine._con.execute("SELECT COUNT(*) FROM asset_states").fetchone()[0]
     console.print(f"[green]Converted {n:,} records: {input_path} → {output_path}[/green]")
@@ -1152,22 +1158,8 @@ def engine_query(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save results to CSV"),
 ):
     """Query simulation results using SQL."""
-    from erad.engine import SimulationEngine
-
-    ext = input_path.suffix.lower()
-    if ext in (".parquet", ".pq"):
-        engine = SimulationEngine.from_parquet(input_path)
-    elif ext in (".db", ".sqlite", ".sqlite3"):
-        engine = SimulationEngine()
-        engine._con.execute(
-            f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
-            " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
-            " DETACH src;"
-        )
-    else:
-        console.print(f"[red]Unsupported file format: {ext}[/red]")
-        raise typer.Exit(code=1)
-
+    fmt = _detect_format(input_path, None)
+    engine = _load_engine_from_file(input_path, fmt)
     result = engine._con.execute(sql).fetchdf()
 
     if output:
@@ -1182,21 +1174,8 @@ def engine_info(
     input_path: Path = typer.Argument(..., help="Results file (Parquet or SQLite)"),
 ):
     """Show summary statistics for a results file."""
-    from erad.engine import SimulationEngine
-
-    ext = input_path.suffix.lower()
-    if ext in (".parquet", ".pq"):
-        engine = SimulationEngine.from_parquet(input_path)
-    elif ext in (".db", ".sqlite", ".sqlite3"):
-        engine = SimulationEngine()
-        engine._con.execute(
-            f"ATTACH '{input_path}' AS src (TYPE SQLITE);"
-            " CREATE TABLE asset_states AS SELECT * FROM src.assetstatetable;"
-            " DETACH src;"
-        )
-    else:
-        console.print(f"[red]Unsupported file format: {ext}[/red]")
-        raise typer.Exit(code=1)
+    fmt = _detect_format(input_path, None)
+    engine = _load_engine_from_file(input_path, fmt)
 
     stats = engine._con.execute(
         """
