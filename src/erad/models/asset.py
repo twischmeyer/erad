@@ -9,7 +9,6 @@ from shapely.geometry import Point
 from pyhigh import get_elevation
 from infrasys import Component
 from loguru import logger
-import geopandas as gpd
 
 # from erad.constants import RASTER_DOWNLOAD_PATH
 from erad.quantities import Acceleration, Speed
@@ -144,26 +143,23 @@ class AssetState(Component):
 
             in_max_wind_area = area.max_wind_area.contains(asset_coordinate)
 
-            gdf = gpd.GeoDataFrame(geometry=[area.max_wind_area], crs="EPSG:4326")
-            max_area = gdf.to_crs("EPSG:3857")
-            asset_latlong = gpd.GeoDataFrame(geometry=[asset_coordinate], crs="EPSG:4326")
-            asset_utm = asset_latlong.to_crs("EPSG:3857")
-            d_asset = (
-                max_area.geometry.boundary.distance(asset_utm.geometry.iloc[0]).iloc[0] / 1609
-            )  # Convert meters to miles
-            d_reduced = area.wind_aff_distance.to(
-                "meter"
-            )  # Convert to meters for buffer operation
-            max_area["geometry"] = max_area.buffer(
-                d_reduced.magnitude, resolution=1, join_style="mitre"
-            )
-            buffer_area = max_area.to_crs("EPSG:4326")
-            wind_aff_area = buffer_area.geometry.iloc[0]
+            # Use pre-computed UTM projection and buffer (computed once per area, not per asset)
+            precomputed = area._precomputed
+            utm_crs = precomputed["utm_crs"]
+            boundary_utm = precomputed["boundary_utm"]
+            wind_aff_area = precomputed["wind_aff_area"]
+            max_center = precomputed["max_center_miles"]
 
-            max_center_pt = max_area.geometry.centroid.iloc[0]
-            max_center = (
-                max_area.geometry.boundary.distance(max_center_pt).iloc[0] / 1609
-            )  # Convert meters to miles
+            # Only reproject the asset point (lightweight per-asset operation)
+            from shapely.ops import transform
+            from pyproj import Transformer
+
+            transformer = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+            asset_utm_point = transform(transformer.transform, asset_coordinate)
+
+            # Distance from asset to polygon boundary in miles
+            meters_per_mile = 1609.344
+            d_asset = boundary_utm.distance(asset_utm_point) / meters_per_mile
 
             in_wind_aff_area = wind_aff_area.contains(asset_coordinate)
 
