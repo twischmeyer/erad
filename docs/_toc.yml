@@ -16,6 +16,7 @@ parts:
     - file: hazards/wildfire
     - file: hazards/flood
     - file: hazards/wind
+    - file: hazards/wind_gust
   - caption: Running Simulations
     chapters:
     - file: simulation/asset 
@@ -23,6 +24,9 @@ parts:
     - file: simulation/running
     - file: simulation/gdm
     - file: simulation/fragility
+  - caption: DuckDB Engine
+    chapters:
+    - file: simulation/engine
   - caption: Reference Guides
     chapters:
     - file: api/data_models

@@ -9,14 +9,14 @@ description = "Graph based scalable tool for computing energy resilience metrics
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Aadil Latif", email = "aadil.altif@nrel.gov" },
-    { name = "Kapil Duwadi", email = "kapil.duwadi@nrel.gov" },
-    { name = "Kwami Sedzro", email = "sherinann.abraham@nrel.gov" },
-    { name = "Sherin Ann Abraham", email = "kwami.sedzro@nrel.gov" },
-    { name = "Bryan Palmintier", email = "bryan.palmintier@nrel.gov" },
+    { name = "Aadil Latif", email = "aadil.latif@nlr.gov" },
+    { name = "Kapil Duwadi", email = "kapil.duwadi@nlr.gov" },
+    { name = "Kwami Sedzro", email = "kwami.sedzro@nlr.gov" },
+    { name = "Sherin Ann Abraham", email = "sherinann.abraham@nlr.gov" },
+    { name = "Bryan Palmintier", email = "bryan.palmintier@nlr.gov" },
 ]
 maintainers = [
-    { name = "Aadil Latif", email = "Aadil.Latif@nrel.gov" },
+    { name = "Aadil Latif", email = "aadil.latif@nlr.gov" },
 ]
 keywords = [
     "Distribution",
@@ -136,6 +136,7 @@ docstring-code-line-length = "dynamic"
 "**/{tests,docs,tools}/*" = ["E402"]
 "src/erad/engine/*" = ["C901"]
 "src/erad/runner.py" = ["C901"]
+"src/erad/cli.py" = ["C901"]
 
 [tool.setuptools.dynamic]
 version = {attr = "erad.__version__"}

@@ -8,7 +8,7 @@ ERAD is a free, open-source Python toolkit for quantifying energy resilience in 
 
 To enhance data consistency and cross-platform compatibility, ERAD also integrates with the [Grid-Data-Models (GDM)](https://github.com/NLR-Distribution-Suite/grid-data-models) framework. GDM provides standardized, Pydantic-based data structures for representing distribution networks, ensuring that ERAD can seamlessly interoperate with other power system analysis tools. This integration improves interoperability by enabling direct exchange of validated network models, preserving connectivity information, and supporting temporal changes in infrastructure state. As a result, researchers and utilities can run resilience analyses in ERAD using the same distribution system models applied in power flow studies, planning tools, and other simulation platforms, significantly reducing data preparation effort and improving reproducibility.
 
-ERAD is designed to be used by researchers, students, community stakeholders, distribution utilities to understand and possibly evaluate effectiveness of different post disaster programs to improve energy resilience. It was funded by National Renewable Energy Laboratory (NREL) and made publicy available with open license.
+ERAD is designed to be used by researchers, students, community stakeholders, distribution utilities to understand and possibly evaluate effectiveness of different post disaster programs to improve energy resilience. It was funded by National Laboratory of the Rockies (NLR) and made publicly available with open license.
 
 ## Table of Contents
 
