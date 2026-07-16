@@ -58,6 +58,7 @@ HAZARD_TYPES = (
     hazard.FloodModel,
     hazard.FireModel,
     hazard.WindModel,
+    hazard.WindGustModel,
 )
 
 HAZARD_MODELS = (
@@ -67,6 +68,8 @@ HAZARD_MODELS = (
     hazard.FloodModel,
     hazard.FireModel,
     hazard.WindModel,
+    hazard.GustModelArea,
+    hazard.WindGustModel,
     frag.ProbabilityFunction,
     frag.FragilityCurve,
     frag.HazardFragilityCurves,
@@ -79,6 +82,8 @@ SUPPORTED_MODELS = [
     hazard.FloodModel,
     hazard.FireModel,
     hazard.WindModel,
+    hazard.GustModelArea,
+    hazard.WindGustModel,
     prob.AccelerationProbability,
     prob.TemperatureProbability,
     prob.DistanceProbability,

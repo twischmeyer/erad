@@ -9,6 +9,7 @@ from shapely.geometry import Point
 from pyhigh import get_elevation
 from infrasys import Component
 from loguru import logger
+import geopandas as gpd
 
 # from erad.constants import RASTER_DOWNLOAD_PATH
 from erad.quantities import Acceleration, Speed
@@ -135,6 +136,50 @@ class AssetState(Component):
             speed=wind_speed.to("miles/hour"),
             survival_probability=1,
         )
+
+    def calculate_wind_gust_vectors(self, asset_coordinate: Point, hazard_model: hz.WindGustModel):
+        max_speed_applied = 0
+        for area in hazard_model.max_wind_areas:
+            v_max = area.max_wind_speed.to("miles/hour")
+
+            in_max_wind_area = area.max_wind_area.contains(asset_coordinate)
+
+            gdf = gpd.GeoDataFrame(geometry=[area.max_wind_area], crs="EPSG:4326")
+            max_area = gdf.to_crs("EPSG:3857")
+            asset_latlong = gpd.GeoDataFrame(geometry=[asset_coordinate], crs="EPSG:4326")
+            asset_utm = asset_latlong.to_crs("EPSG:3857")
+            d_asset = (
+                max_area.geometry.boundary.distance(asset_utm.geometry.iloc[0]).iloc[0] / 1609
+            )  # Convert meters to miles
+            d_reduced = area.wind_aff_distance.to(
+                "meter"
+            )  # Convert to meters for buffer operation
+            max_area["geometry"] = max_area.buffer(
+                d_reduced.magnitude, resolution=1, join_style="mitre"
+            )
+            buffer_area = max_area.to_crs("EPSG:4326")
+            wind_aff_area = buffer_area.geometry.iloc[0]
+
+            max_center_pt = max_area.geometry.centroid.iloc[0]
+            max_center = (
+                max_area.geometry.boundary.distance(max_center_pt).iloc[0] / 1609
+            )  # Convert meters to miles
+
+            in_wind_aff_area = wind_aff_area.contains(asset_coordinate)
+
+            if in_max_wind_area:
+                wind_speed = area.max_wind_speed
+            elif in_wind_aff_area:
+                wind_speed = v_max * ((max_center / (d_asset + max_center)) ** area.decay_rate)
+            else:
+                wind_speed = Speed(0, "miles/hour")
+
+            if wind_speed.to("miles/hour").magnitude > max_speed_applied:
+                max_speed_applied = wind_speed.to("miles/hour").magnitude
+                self.wind_speed = SpeedProbability(
+                    speed=wind_speed.to("miles/hour"),
+                    survival_probability=1,
+                )
 
     def calculate_flood_vectors(
         self, asset_coordinate: Point, hazard_model: hz.FloodModel, asset_total_elevation: Distance
@@ -285,6 +330,8 @@ class Asset(Component):
             asset_state.calculate_fire_vectors(asset_location, hazard_model)
         elif isinstance(hazard_model, hz.WindModel):
             asset_state.calculate_wind_vectors(asset_location, hazard_model)
+        elif isinstance(hazard_model, hz.WindGustModel):
+            asset_state.calculate_wind_gust_vectors(asset_location, hazard_model)
         elif isinstance(hazard_model, hz.FloodModel):
             asset_state.calculate_flood_vectors(
                 asset_location, hazard_model, self.elevation + self.height

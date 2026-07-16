@@ -48,6 +48,13 @@ class HazardSystem(System):
         return system
 
     @classmethod
+    def wind_gust_example(cls) -> "HazardSystem":
+        hazard = hz.WindGustModel.example()
+        system = HazardSystem(auto_add_composed_components=True)
+        system.add_component(hazard)
+        return system
+
+    @classmethod
     def earthquake_example(cls) -> "HazardSystem":
         hazard = hz.EarthQuakeModel.example()
         system = HazardSystem(auto_add_composed_components=True)

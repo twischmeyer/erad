@@ -45,6 +45,10 @@ def test_wind_example():
     HazardSystem.wind_example()
 
 
+def test_wind_gust_example():
+    HazardSystem.wind_gust_example()
+
+
 def test_flood_example():
     HazardSystem.flood_example()
 
@@ -53,6 +57,11 @@ def test_wind_plot():
     hazard = WindModel.from_hurricane_sid("2017228N14314")
     system = HazardSystem(auto_add_composed_components=True)
     system.add_components(*hazard)
+    system.plot()
+
+
+def test_wind_gust_plot():
+    system = HazardSystem.wind_gust_example()
     system.plot()
 
 
